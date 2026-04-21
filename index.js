@@ -64,14 +64,10 @@ async function scrapePage(url) {
       timeout: 60000
     });
 
-    // Wait for app cards to load (try multiple selectors for different page types)
     try {
       await page.waitForSelector('.us8NPb, a.Si6A0c.ZD8Cqc, a.Si6A0c.Gy4nib, .ubGTjb', { timeout: 15000 });
-    } catch (e) {
-      // Some pages load differently, just continue
-    }
+    } catch (e) {}
 
-    // Scroll down to load more apps
     for (let i = 0; i < 3; i++) {
       await page.evaluate(() => window.scrollBy(0, window.innerHeight));
       await new Promise(r => setTimeout(r, 1500));
@@ -81,12 +77,10 @@ async function scrapePage(url) {
       const data = [];
       const seen = new Set();
 
-      // Helper to add app
       const addApp = (title, developer, icon, rating, href, type) => {
         const appTitle = title?.trim();
         if (!appTitle || seen.has(appTitle)) return;
         seen.add(appTitle);
-
         data.push({
           title: appTitle,
           developer: developer?.trim() || null,
@@ -97,45 +91,37 @@ async function scrapePage(url) {
         });
       };
 
-      // Featured / compact cards
       document.querySelectorAll('.us8NPb').forEach(card => {
         const link = card.querySelector('a[href^="/store/apps/details?id="]');
         const titleEl = card.querySelector('.fkdIre, .Epkrse');
         const developerEl = card.querySelector('.bcLwIe');
         const iconEl = card.querySelector('img.T75of.nnW2Md, img.T75of.etjhNc.Q8CSx');
         const ratingEl = card.querySelector('.vlGucd .LrNMN');
-
         const href = link?.getAttribute('href') || card.closest('a')?.getAttribute('href');
         addApp(titleEl?.innerText, developerEl?.innerText, iconEl?.src, ratingEl?.innerText, href, 'featured');
       });
 
-      // Grid / browse cards (main page)
       document.querySelectorAll('a.Si6A0c.ZD8Cqc').forEach(card => {
         const titleEl = card.querySelector('.Epkrse, .fkdIre');
         const iconEl = card.querySelector('img.T75of.etjhNc.Q8CSx, img.T75of.nnW2Md');
         const ratingEl = card.querySelector('.vlGucd .LrNMN');
-
         addApp(titleEl?.innerText, null, iconEl?.src, ratingEl?.innerText, card.getAttribute('href'), 'grid');
       });
 
-      // Search page cards (alternative selectors)
       document.querySelectorAll('a.Si6A0c.Gy4nib, a.Si6A0c.jEFi_q').forEach(card => {
         const titleEl = card.querySelector('.DdYX5, .Epkrse, .fkdIre, .ubGTjb');
         const iconEl = card.querySelector('img.T75of.stzEZd, img.T75of.jpDEN, img.T75of.etjhNc.Q8CSx, img.T75of.nnW2Md');
         const ratingEl = card.querySelector('.w2kbF, .vlGucd .LrNMN');
         const developerEl = card.querySelector('.wMUdtb');
-
         addApp(titleEl?.innerText, developerEl?.innerText, iconEl?.src, ratingEl?.innerText, card.getAttribute('href'), 'search');
       });
 
-      // Additional search result wrappers
       document.querySelectorAll('.ubGTjb').forEach(card => {
         const parent = card.closest('a[href^="/store/apps/details?id="]');
         if (!parent || seen.has(card.innerText?.trim())) return;
         const iconEl = parent.querySelector('img.T75of');
         const ratingEl = parent.querySelector('.w2kbF, .vlGucd .LrNMN');
         const developerEl = parent.querySelector('.wMUdtb');
-
         addApp(card.innerText, developerEl?.innerText, iconEl?.src, ratingEl?.innerText, parent.getAttribute('href'), 'search');
       });
 
@@ -168,11 +154,7 @@ app.get('/categories', (req, res) => {
     url: `https://play.google.com/store/apps/category/${key}`,
     api: `http://localhost:${PORT}/apps/${key}`
   }));
-
-  res.json({
-    count: categoriesList.length,
-    categories: categoriesList
-  });
+  res.json({ count: categoriesList.length, categories: categoriesList });
 });
 
 app.get('/apps', async (req, res) => {
@@ -187,12 +169,8 @@ app.get('/apps', async (req, res) => {
 
 app.get('/apps/details', async (req, res) => {
   const appId = req.query.id;
-
   if (!appId) {
-    return res.status(400).json({
-      error: 'Missing app id',
-      usage: '/apps/details?id=com.example.app'
-    });
+    return res.status(400).json({ error: 'Missing app id', usage: '/apps/details?id=com.example.app' });
   }
 
   let browser;
@@ -215,55 +193,111 @@ app.get('/apps/details', async (req, res) => {
     );
 
     const url = `https://play.google.com/store/apps/details?id=${appId}`;
-    await page.goto(url, {
-      waitUntil: 'networkidle2',
-      timeout: 60000
-    });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // Wait for content
     try {
       await page.waitForSelector('h1, .Fd93Bb, .AfwpI', { timeout: 15000 });
-    } catch (e) {
-      // Continue anyway
+    } catch (e) {}
+
+    // Scroll to load additional info section
+    for (let i = 0; i < 4; i++) {
+      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+      await new Promise(r => setTimeout(r, 1000));
     }
 
     const appDetails = await page.evaluate(() => {
       const getText = (sel) => document.querySelector(sel)?.innerText?.trim() || null;
-      const getAttr = (sel, attr) => document.querySelector(sel)?.getAttribute(attr) || null;
       const getSrc = (sel) => document.querySelector(sel)?.src || null;
 
-      // Helper to find element by partial text content
-      const findByText = (text) => {
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while (node = walker.nextNode()) {
-          if (node.textContent.toLowerCase().includes(text.toLowerCase())) {
-            return node.parentElement;
+      // Robust label-value extractor
+      const getByLabel = (label) => {
+        const allEls = Array.from(document.querySelectorAll('div, span, dt, dd'));
+        for (const el of allEls) {
+          if (el.innerText?.trim().toLowerCase() === label.toLowerCase()) {
+            // sibling
+            const sib = el.nextElementSibling;
+            if (sib && sib.innerText?.trim()) return sib.innerText.trim();
+            // parent's sibling
+            const parentSib = el.parentElement?.nextElementSibling;
+            if (parentSib && parentSib.innerText?.trim()) return parentSib.innerText.trim();
+            // children of same container
+            const siblings = Array.from(el.parentElement?.children || []);
+            for (const s of siblings) {
+              if (s !== el && s.innerText?.trim()) return s.innerText.trim();
+            }
           }
         }
         return null;
       };
 
-      // Try multiple selectors for each field
+      // Title
       const title = getText('h1 span, .Fd93Bb.Ydn0vb, .AfwpI') || getText('h1');
-      const developer = getText('[itemprop="author"] [itemprop="name"], .Vbfug span, a[href^="/store/apps/dev"], .gppmL');
-      const rating = getText('[itemprop="ratingValue"], .TT9eCd, div[aria-label*="star"]') || getText('.gLFyf');
-      const reviews = getText('[itemprop="ratingCount"], .g1rdde');
-      const description = getText('[itemprop="description"] [data-g-id="description"], .bARER, div[itemprop="description"]') || getText('[data-g-id="description"]');
-      const icon = getSrc('img[itemprop="image"], img.T75of.sHb2Xb, img.T75of.AG5UC');
-      const genre = getText('[itemprop="genre"], a[href*="/store/apps/category/"]') || getText('a[href*="/store/apps/category/"]');
-      const price = getText('[itemprop="price"], .VfPpfd.VixbEe span');
 
-      // Find installs/downloads by walking DOM for text
-      let installs = null;
-      const installsLabel = findByText('Downloads') || findByText('Installs');
-      if (installsLabel) {
-        const sibling = installsLabel.nextElementSibling;
-        installs = sibling?.innerText?.trim() || installsLabel.parentElement?.nextElementSibling?.innerText?.trim() || null;
+      // Developer
+      const developer = getText('[itemprop="author"] [itemprop="name"], .Vbfug span, a[href^="/store/apps/dev"]') || getByLabel('Offered by');
+
+      // Rating number only
+      const ratingEl = document.querySelector('.TT9eCd');
+      const rating = ratingEl ? (ratingEl.childNodes[0]?.textContent?.trim() || ratingEl.innerText.split('\n')[0].trim()) : null;
+
+      // Reviews
+      const reviews = getText('.wVqUob .g1rdde') || getText('[itemprop="ratingCount"]');
+
+      // Description
+      const description = getText('[itemprop="description"]') || getText('[data-g-id="description"]') || getText('.bARER');
+
+      // Icon
+      const icon = getSrc('img[itemprop="image"], img.T75of.sHb2Xb, img.T75of.AG5UC');
+
+      // Genre
+      const genre = getText('[itemprop="genre"]') || getText('a[href*="/store/apps/category/"]');
+
+      // Price
+      const price = getText('[itemprop="price"]') || getText('.VfPpfd.VixbEe span');
+
+      // Downloads
+      let downloads = null;
+      const downloadLabel = document.evaluate(
+        "//div[contains(text(), 'Downloads') or contains(text(), 'downloads')]",
+        document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+      ).singleNodeValue;
+      if (downloadLabel) {
+        const prev = downloadLabel.previousElementSibling;
+        downloads = prev?.innerText?.trim() || downloadLabel.parentElement?.firstElementChild?.innerText?.trim() || null;
       }
 
-      // Screenshots
-      const screenshots = Array.from(document.querySelectorAll('img[itemprop="screenshot"], img.T75of.K9W4j, img.T75of.lxGQyd')).map(img => img.src);
+      // Screenshots (replace size param for larger images)
+      const screenshots = Array.from(
+        document.querySelectorAll('img.T75of.B5GQxf[alt="Screenshot image"], img[data-screenshot-index]')
+      )
+        .map(img => {
+          let url = null;
+          // Use srcset highest resolution if available
+          if (img.srcset) {
+            const sources = img.srcset.split(',').map(s => s.trim());
+            const last = sources[sources.length - 1];
+            url = last.split(' ')[0];
+          } else if (img.src) {
+            url = img.src;
+          }
+          // Force largest possible size
+          if (url) {
+            return url.replace(/=w\d+-h\d+-rw$/, '=w5120-h2880-rw');
+          }
+          return null;
+        })
+        .filter(Boolean);
+
+      // Metadata fields
+      const version = getByLabel('Version');
+      const updatedOn = getByLabel('Updated on');
+      const requiresAndroid = getByLabel('Requires Android');
+      const inAppPurchases = getByLabel('In-app purchases');
+      const contentRating = getByLabel('Content rating');
+      const permissions = getByLabel('Permissions');
+      const interactiveElements = getByLabel('Interactive elements');
+      const releasedOn = getByLabel('Released on');
+      const downloadSize = getByLabel('Download size') || getByLabel('Size');
 
       return {
         title,
@@ -274,16 +308,21 @@ app.get('/apps/details', async (req, res) => {
         icon,
         genre,
         price,
-        installs,
-        screenshots: screenshots.slice(0, 10)
+        downloads,
+        version,
+        updatedOn,
+        requiresAndroid,
+        inAppPurchases,
+        contentRating,
+        permissions,
+        interactiveElements,
+        releasedOn,
+        downloadSize,
+        screenshots
       };
     });
 
-    res.json({
-      appId: appId,
-      source: url,
-      details: appDetails
-    });
+    res.json({ appId, source: url, details: appDetails });
   } catch (error) {
     console.error('Details scraping error:', error);
     res.status(500).json({ error: error.message });
@@ -294,24 +333,13 @@ app.get('/apps/details', async (req, res) => {
 
 app.get('/apps/:category', async (req, res) => {
   const category = req.params.category.toUpperCase();
-
   if (!CATEGORIES[category]) {
-    return res.status(400).json({
-      error: 'Invalid category',
-      validCategories: Object.keys(CATEGORIES)
-    });
+    return res.status(400).json({ error: 'Invalid category', validCategories: Object.keys(CATEGORIES) });
   }
-
   try {
     const url = `https://play.google.com/store/apps/category/${category}`;
     const apps = await scrapePage(url);
-    res.json({
-      category: CATEGORIES[category],
-      categoryId: category,
-      source: url,
-      count: apps.length,
-      apps
-    });
+    res.json({ category: CATEGORIES[category], categoryId: category, source: url, count: apps.length, apps });
   } catch (error) {
     console.error('Scraping error:', error);
     res.status(500).json({ error: error.message });
@@ -320,23 +348,13 @@ app.get('/apps/:category', async (req, res) => {
 
 app.get('/search', async (req, res) => {
   const query = req.query.q;
-
   if (!query) {
-    return res.status(400).json({
-      error: 'Missing search query',
-      usage: '/search?q=your+search+term'
-    });
+    return res.status(400).json({ error: 'Missing search query', usage: '/search?q=your+search+term' });
   }
-
   try {
     const url = `https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps`;
     const apps = await scrapePage(url);
-    res.json({
-      query: query,
-      source: url,
-      count: apps.length,
-      apps
-    });
+    res.json({ query, source: url, count: apps.length, apps });
   } catch (error) {
     console.error('Scraping error:', error);
     res.status(500).json({ error: error.message });
@@ -349,4 +367,5 @@ app.listen(PORT, () => {
   console.log(`Try: http://localhost:${PORT}/categories`);
   console.log(`Try: http://localhost:${PORT}/apps/SOCIAL`);
   console.log(`Try: http://localhost:${PORT}/search?q=chat`);
+  console.log(`Try: http://localhost:${PORT}/apps/details?id=com.openai.chatgpt`);
 });
