@@ -1,6 +1,6 @@
-# CodeCanyon Featured Items Scraper API
+# CodeCanyon Scraper API
 
-A Node.js API to scrape featured items from CodeCanyon using Axios + Cheerio.
+A Node.js API to scrape items from CodeCanyon using Axios + Cheerio.
 
 ## Installation
 
@@ -14,12 +14,61 @@ Server runs on `http://localhost:3001`
 
 ## API Endpoints
 
-### Get Featured Items
+### Get API Info
+```bash
+GET /
+```
+
+### Featured Items
 ```bash
 GET /featured
 ```
+Returns featured items from CodeCanyon homepage.
 
-**Response:**
+### Search Items
+```bash
+GET /search?term=chat
+```
+Search items by keyword.
+
+### List Categories
+```bash
+GET /categories
+```
+Returns all CodeCanyon categories.
+
+### Items by Category
+```bash
+GET /category/wordpress
+```
+Returns items in a specific category.
+
+### Top Sellers / Popular
+```bash
+GET /popular
+```
+Returns top selling items.
+
+### Top New Items
+```bash
+GET /top-new
+```
+Returns top new items this month.
+
+### Item Details
+```bash
+GET /item/61857601
+```
+Returns details for a specific item by ID.
+
+### Author Items
+```bash
+GET /author/TitanSystems
+```
+Returns items by a specific author.
+
+## Response Format
+
 ```json
 {
   "source": "https://codecanyon.net/feature",
