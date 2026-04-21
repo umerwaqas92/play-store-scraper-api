@@ -1,7 +1,7 @@
 {
   "name": "codecanyon-feature-scraper-api",
   "version": "1.0.0",
-  "description": "API to scrape featured items from CodeCanyon",
+  "description": "API to scrape items from CodeCanyon",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

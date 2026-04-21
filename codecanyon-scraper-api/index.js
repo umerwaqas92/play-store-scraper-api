@@ -5,7 +5,6 @@ const cheerio = require('cheerio');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Reusable HTTP client
 const client = axios.create({
   timeout: 30000,
   headers: {
@@ -15,14 +14,12 @@ const client = axios.create({
   }
 });
 
-// Parse item card (reusable for featured, search, category, etc.)
 function parseItemCard($, card) {
   const titleEl = card.find('.shared-item_cards-item_name_component__itemNameLink').first();
   const authorEls = card.find('.shared-item_cards-author_category_component__link');
   const priceEl = card.find('.shared-item_cards-price_component__root').first();
   const promoPriceEl = card.find('.shared-item_cards-price_component__promoPrice').first();
   const ratingEl = card.find('.shared-stars_rating_component__starRating').first();
-  const reviewsEl = card.find('.shared-stars_rating_component__starRatingCount').first();
   const salesEl = card.find('.shared-item_cards-sales_component__root').first();
   const imgEl = card.find('.shared-item_cards-preview_image_component__image').first();
   const cardRoot = card.find('.shared-item_cards-grid-image_card_component__root, .shared-item_cards-list-image_card_component__root').first();
@@ -48,229 +45,123 @@ function parseItemCard($, card) {
   if (ratingMatch) rating = parseFloat(ratingMatch[1]);
   if (reviewMatch) reviewCount = parseInt(reviewMatch[1]);
 
-  return {
-    itemId,
-    title,
-    url,
-    author,
-    authorUrl,
-    category,
-    categoryUrl,
-    price,
-    rating,
-    reviewCount,
-    sales,
-    image
-  };
+  return { itemId, title, url, author, authorUrl, category, categoryUrl, price, rating, reviewCount, sales, image };
 }
 
-// Scrape items from any page with cards
 async function scrapeItemsFromUrl(url) {
   const { data } = await client.get(url);
   const $ = cheerio.load(data);
   const items = [];
-
   $('.shared-item_cards-card_component__root').each((i, el) => {
     const item = parseItemCard($, $(el));
     if (item) items.push(item);
   });
-
   return items;
 }
-
-// ============ ENDPOINTS ============
 
 app.get('/', (req, res) => {
   res.json({
     message: 'CodeCanyon Scraper API',
+    note: 'Some endpoints may return 403 due to CodeCanyon anti-bot protection',
     endpoints: {
-      '/featured': 'Featured items',
-      '/search?term=keyword': 'Search items by keyword',
-      '/categories': 'List all categories',
-      '/category/:slug': 'Items by category (e.g., /category/wordpress)',
-      '/popular': 'Top sellers / popular items',
-      '/top-new': 'Top new items this month',
-      '/item/:id': 'Item details (e.g., /item/61857601)',
-      '/author/:username': 'Items by author (e.g., /author/TitanSystems)'
+      '/featured': 'Featured items (works)',
+      '/categories': 'List all categories (works)',
+      '/popular': 'Top sellers (works)',
+      '/search?term=keyword': 'Search items (may be blocked)',
+      '/category/:slug': 'Items by category (may be blocked)',
+      '/item/:id': 'Item details (may be blocked)',
+      '/author/:username': 'Items by author (may be blocked)'
     }
   });
 });
 
-// Featured Items
 app.get('/featured', async (req, res) => {
   try {
     const items = await scrapeItemsFromUrl('https://codecanyon.net/feature');
     res.json({ source: 'https://codecanyon.net/feature', count: items.length, items });
   } catch (error) {
-    console.error('Scraping error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Search Items
-app.get('/search', async (req, res) => {
-  const term = req.query.term || req.query.q;
-  if (!term) {
-    return res.status(400).json({ error: 'Missing search term', usage: '/search?term=chat' });
-  }
-
-  try {
-    const url = `https://codecanyon.net/search?term=${encodeURIComponent(term)}`;
-    const items = await scrapeItemsFromUrl(url);
-    res.json({ query: term, source: url, count: items.length, items });
-  } catch (error) {
-    console.error('Search error:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// All Categories
 app.get('/categories', async (req, res) => {
   try {
     const { data } = await client.get('https://codecanyon.net/category');
     const $ = cheerio.load(data);
     const categories = [];
 
-    // Primary categories
     $('.shared-categories-index_categories_list_component__category').each((i, el) => {
       const link = $(el).find('.shared-categories-index_categories_list_component__categoryLink').first();
       const name = link.text().trim();
       const url = link.attr('href');
       const slug = url?.split('/').pop();
-      const countEl = $(el).find('.shared-categories-index_categories_list_component__count');
-      const count = countEl.text().trim() || null;
-
-      if (name && url) {
-        categories.push({ name, slug, url, count });
-      }
+      if (name && url) categories.push({ name, slug, url });
     });
-
-    // Alternative selector
-    if (categories.length === 0) {
-      $('a[href^="/category/"]').each((i, el) => {
-        const name = $(el).text().trim();
-        const url = $(el).attr('href');
-        const slug = url?.split('/').pop();
-        if (name && url && !categories.find(c => c.slug === slug)) {
-          categories.push({ name, slug, url, count: null });
-        }
-      });
-    }
 
     res.json({ source: 'https://codecanyon.net/category', count: categories.length, categories });
   } catch (error) {
-    console.error('Categories error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Items by Category
-app.get('/category/:slug', async (req, res) => {
-  const slug = req.params.slug;
-  const page = req.query.page || 1;
-
-  try {
-    const url = `https://codecanyon.net/category/${slug}?page=${page}`;
-    const items = await scrapeItemsFromUrl(url);
-    res.json({ category: slug, page: parseInt(page), source: url, count: items.length, items });
-  } catch (error) {
-    console.error('Category error:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Popular / Top Sellers
 app.get('/popular', async (req, res) => {
   try {
-    const url = 'https://codecanyon.net/top-sellers';
-    const items = await scrapeItemsFromUrl(url);
-    res.json({ source: url, count: items.length, items });
+    const items = await scrapeItemsFromUrl('https://codecanyon.net/top-sellers');
+    res.json({ source: 'https://codecanyon.net/top-sellers', count: items.length, items });
   } catch (error) {
-    console.error('Popular error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Top New Items
-app.get('/top-new', async (req, res) => {
+// These endpoints may return 403 due to Cloudflare protection
+app.get('/search', async (req, res) => {
+  const term = req.query.term || req.query.q;
+  if (!term) return res.status(400).json({ error: 'Missing search term', usage: '/search?term=chat' });
+
   try {
-    const url = 'https://codecanyon.net/search?date=this-month&sort=sales';
+    const url = `https://codecanyon.net/search?term=${encodeURIComponent(term)}`;
     const items = await scrapeItemsFromUrl(url);
-    res.json({ source: url, count: items.length, items });
+    res.json({ query: term, source: url, count: items.length, items });
   } catch (error) {
-    console.error('Top new error:', error.message);
-    res.status(500).json({ error: error.message });
+    res.status(403).json({ error: 'CodeCanyon blocked this request (anti-bot protection)', message: error.message });
   }
 });
 
-// Item Details
+app.get('/category/:slug', async (req, res) => {
+  try {
+    const url = `https://codecanyon.net/category/${req.params.slug}`;
+    const items = await scrapeItemsFromUrl(url);
+    res.json({ category: req.params.slug, source: url, count: items.length, items });
+  } catch (error) {
+    res.status(403).json({ error: 'CodeCanyon blocked this request (anti-bot protection)', message: error.message });
+  }
+});
+
 app.get('/item/:id', async (req, res) => {
-  const itemId = req.params.id;
-
   try {
-    const url = `https://codecanyon.net/item/x/${itemId}`;
-    const { data } = await client.get(url, { maxRedirects: 5 });
+    const { data } = await client.get(`https://codecanyon.net/item/x/${req.params.id}`, { maxRedirects: 5 });
     const $ = cheerio.load(data);
-
-    const title = $('h1').first().text().trim() || null;
-    const description = $('[data-testid="item-description"]').text().trim() || $('.item-description').text().trim() || null;
-    const price = $('.shared-item_cards-price_component__root, .item-header__price').first().text().trim() || null;
-    const author = $('a[href^="/user/"]').first().text().trim() || null;
-    const authorUrl = $('a[href^="/user/"]').first().attr('href');
-    const ratingText = $('.shared-stars_rating_component__starRating').first().attr('aria-label') || '';
-    const image = $('.shared-item_cards-preview_image_component__image, .item-header__preview img').first().attr('src');
-    const sales = $('.shared-item_cards-sales_component__root').first().text().trim() || null;
-
-    let rating = null;
-    let reviewCount = null;
-    const ratingMatch = ratingText.match(/Rated\s+([\d.]+)\s+out\s+of\s+5/);
-    const reviewMatch = ratingText.match(/(\d+)\s+reviews?/);
-    if (ratingMatch) rating = parseFloat(ratingMatch[1]);
-    if (reviewMatch) reviewCount = parseInt(reviewMatch[1]);
-
     res.json({
-      itemId,
-      source: url,
-      details: {
-        title,
-        description: description?.substring(0, 500),
-        author,
-        authorUrl: authorUrl ? `https://codecanyon.net${authorUrl}` : null,
-        price,
-        rating,
-        reviewCount,
-        sales,
-        image
-      }
+      itemId: req.params.id,
+      title: $('h1').first().text().trim() || null,
+      author: $('a[href^="/user/"]').first().text().trim() || null,
+      price: $('.shared-item_cards-price_component__root').first().text().trim() || null,
     });
   } catch (error) {
-    console.error('Item details error:', error.message);
-    res.status(500).json({ error: error.message });
+    res.status(403).json({ error: 'CodeCanyon blocked this request (anti-bot protection)', message: error.message });
   }
 });
 
-// Author Items
 app.get('/author/:username', async (req, res) => {
-  const username = req.params.username;
-
   try {
-    const url = `https://codecanyon.net/user/${username}`;
+    const url = `https://codecanyon.net/user/${req.params.username}`;
     const items = await scrapeItemsFromUrl(url);
-    res.json({ author: username, source: url, count: items.length, items });
+    res.json({ author: req.params.username, source: url, count: items.length, items });
   } catch (error) {
-    console.error('Author error:', error.message);
-    res.status(500).json({ error: error.message });
+    res.status(403).json({ error: 'CodeCanyon blocked this request (anti-bot protection)', message: error.message });
   }
 });
 
 app.listen(PORT, () => {
   console.log(`CodeCanyon Scraper running on http://localhost:${PORT}`);
-  console.log(`Try: http://localhost:${PORT}/featured`);
-  console.log(`Try: http://localhost:${PORT}/search?term=chat`);
-  console.log(`Try: http://localhost:${PORT}/categories`);
-  console.log(`Try: http://localhost:${PORT}/category/wordpress`);
-  console.log(`Try: http://localhost:${PORT}/popular`);
-  console.log(`Try: http://localhost:${PORT}/top-new`);
-  console.log(`Try: http://localhost:${PORT}/item/61857601`);
-  console.log(`Try: http://localhost:${PORT}/author/TitanSystems`);
 });

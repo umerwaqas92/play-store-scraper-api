@@ -14,58 +14,26 @@ Server runs on `http://localhost:3001`
 
 ## API Endpoints
 
-### Get API Info
-```bash
-GET /
-```
+### Working Endpoints (No Anti-Bot)
 
-### Featured Items
-```bash
-GET /featured
-```
-Returns featured items from CodeCanyon homepage.
+| Endpoint | Description | Status |
+|----------|-------------|--------|
+| `GET /featured` | Featured items | ✅ Works |
+| `GET /categories` | List all categories | ✅ Works |
+| `GET /popular` | Top sellers | ✅ Works |
 
-### Search Items
-```bash
-GET /search?term=chat
-```
-Search items by keyword.
+### Limited Endpoints (May be blocked)
 
-### List Categories
-```bash
-GET /categories
-```
-Returns all CodeCanyon categories.
+| Endpoint | Description | Status |
+|----------|-------------|--------|
+| `GET /search?term=chat` | Search items | ⚠️ May return 403 |
+| `GET /category/wordpress` | Items by category | ⚠️ May return 403 |
+| `GET /item/61857601` | Item details | ⚠️ May return 403 |
+| `GET /author/TitanSystems` | Author items | ⚠️ May return 403 |
 
-### Items by Category
-```bash
-GET /category/wordpress
-```
-Returns items in a specific category.
+## Why Some Endpoints Fail
 
-### Top Sellers / Popular
-```bash
-GET /popular
-```
-Returns top selling items.
-
-### Top New Items
-```bash
-GET /top-new
-```
-Returns top new items this month.
-
-### Item Details
-```bash
-GET /item/61857601
-```
-Returns details for a specific item by ID.
-
-### Author Items
-```bash
-GET /author/TitanSystems
-```
-Returns items by a specific author.
+CodeCanyon uses **Cloudflare anti-bot protection** on search, category, and item detail pages. The `/featured`, `/categories`, and `/popular` pages are not protected and work reliably.
 
 ## Response Format
 
@@ -114,6 +82,10 @@ Returns items by a specific author.
 - **Express.js** — Web framework
 - **Axios** — HTTP requests
 - **Cheerio** — Server-side HTML parsing
+
+## Note
+
+There is **no dedicated npm package** for CodeCanyon scraping (unlike `google-play-scraper` for Play Store). This API uses direct HTTP scraping.
 
 ## Author
 
