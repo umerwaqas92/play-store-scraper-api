@@ -13,120 +13,25 @@ A Node.js API to scrape app data from the Google Play Store using a hybrid appro
 
 ## Screenshots
 
-### API Endpoints Overview
-```json
-// GET /
-{
-  "message": "Play Store Scraper API",
-  "endpoints": {
-    "/apps": "Get all apps from main Google Play Store page",
-    "/categories": "List all available app categories",
-    "/apps/:category": "Get apps from a specific category (e.g., /apps/SOCIAL)",
-    "/search": "Search apps by query parameter (e.g., /search?q=chat)",
-    "/apps/details?id=PACKAGE_NAME": "Get details for a specific app",
-    "/apps/reviews?id=PACKAGE_NAME": "Get ratings breakdown and reviews"
-  }
-}
-```
+Real API responses captured using Selenium + Python with syntax highlighting.
 
-### Categories Response
-```json
-// GET /categories
-{
-  "count": 32,
-  "categories": [
-    {
-      "id": "ART_AND_DESIGN",
-      "name": "Art & Design",
-      "url": "https://play.google.com/store/apps/category/ART_AND_DESIGN",
-      "api": "http://localhost:3000/apps/ART_AND_DESIGN"
-    },
-    {
-      "id": "SOCIAL",
-      "name": "Social",
-      "url": "https://play.google.com/store/apps/category/SOCIAL",
-      "api": "http://localhost:3000/apps/SOCIAL"
-    }
-  ]
-}
-```
+### Homepage - API Endpoints
+![Homepage](screenshots/01-homepage.png)
 
-### App Details Response
-```json
-// GET /apps/details?id=com.openai.chatgpt
-{
-  "appId": "com.openai.chatgpt",
-  "details": {
-    "title": "ChatGPT",
-    "developer": "OpenAI",
-    "rating": "4.5",
-    "reviews": "44.3M reviews",
-    "description": "Introducing ChatGPT for Android...",
-    "icon": "https://play-lh.googleusercontent.com/...",
-    "genre": "Productivity",
-    "downloads": "1,000,000,000+ downloads (1B+)",
-    "version": "1.2026.104",
-    "updatedOn": "Apr 19, 2026",
-    "requiresAndroid": "7.1 and up",
-    "inAppPurchases": "Rs 1,400 - Rs 49,900 per item",
-    "contentRating": "Rated for 12+",
-    "releasedOn": "Jul 28, 2023",
-    "screenshots": [
-      "https://play-lh.googleusercontent.com/...=w5120-h2880-rw"
-    ]
-  }
-}
-```
+### Categories Listing
+![Categories](screenshots/02-categories.png)
 
-### Reviews Response
-```json
-// GET /apps/reviews?id=com.openai.chatgpt&num=5
-{
-  "appId": "com.openai.chatgpt",
-  "overallRating": 4.6707053,
-  "totalReviews": 160960,
-  "ratingBreakdown": {
-    "5": 38001867,
-    "4": 2907377,
-    "3": 826098,
-    "2": 259966,
-    "1": 2312718
-  },
-  "count": 5,
-  "reviews": [
-    {
-      "reviewer": "Mdsaffrin Saffrin",
-      "avatar": "https://play-lh.googleusercontent.com/...",
-      "date": "2026-04-21T10:25:43.243Z",
-      "stars": 5,
-      "text": "very good and helpful app",
-      "helpful": 0,
-      "reply": null,
-      "version": null
-    }
-  ]
-}
-```
+### Apps by Category (Social)
+![Apps Social](screenshots/03-apps-social.png)
 
-### Search Response
-```json
-// GET /search?q=chat
-{
-  "query": "chat",
-  "source": "https://play.google.com/store/search?q=chat&c=apps",
-  "count": 57,
-  "apps": [
-    {
-      "title": "ChatGPT",
-      "developer": "OpenAI",
-      "url": "https://play.google.com/store/apps/details?id=com.openai.chatgpt",
-      "icon": "https://play-lh.googleusercontent.com/...",
-      "rating": "4.5",
-      "type": "search"
-    }
-  ]
-}
-```
+### Search Results (chat)
+![Search Chat](screenshots/04-search-chat.png)
+
+### App Details (ChatGPT)
+![App Details](screenshots/05-app-details.png)
+
+### App Reviews (ChatGPT)
+![App Reviews](screenshots/06-app-reviews.png)
 
 ## Installation
 
