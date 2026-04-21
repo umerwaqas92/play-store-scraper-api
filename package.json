@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "express": "^4.18.2",
+    "google-play-scraper": "^10.1.2",
     "puppeteer": "^21.6.1"
   }
 }

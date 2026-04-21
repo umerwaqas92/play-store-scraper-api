@@ -1,5 +1,6 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
+const gplay = require('google-play-scraper').default;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -134,6 +135,63 @@ async function scrapePage(url) {
   }
 }
 
+// Parse Google's batchexecute response format
+function parseBatchExecuteResponse(responseText) {
+  const reviews = [];
+  try {
+    // Remove the )]}' prefix and split by newlines
+    const lines = responseText.split('\n').filter(line => line.trim() && !line.startsWith(")]}'"));
+    
+    for (const line of lines) {
+      try {
+        const data = JSON.parse(line);
+        if (Array.isArray(data) && data.length > 0) {
+          // Look for review arrays in the response
+          const walkArray = (arr) => {
+            if (!Array.isArray(arr)) return;
+            for (const item of arr) {
+              if (Array.isArray(item)) {
+                // Check if this looks like a review: [id, [name, avatar], stars, null, text, timestamp, helpfulCount]
+                if (item.length >= 6 && typeof item[0] === 'string' && item[0].includes('-')) {
+                  const reviewId = item[0];
+                  const reviewerData = item[1];
+                  const stars = item[2];
+                  const text = item[4];
+                  const timestamp = item[5];
+                  const helpful = item[7];
+                  
+                  if (typeof text === 'string' && text.length > 5) {
+                    let reviewerName = null;
+                    let avatar = null;
+                    if (Array.isArray(reviewerData)) {
+                      reviewerName = reviewerData[0];
+                      if (Array.isArray(reviewerData[1]) && Array.isArray(reviewerData[1][3])) {
+                        avatar = reviewerData[1][3][1];
+                      }
+                    }
+                    
+                    reviews.push({
+                      reviewId,
+                      reviewer: reviewerName,
+                      avatar,
+                      stars: typeof stars === 'number' ? stars : null,
+                      text,
+                      helpful: typeof helpful === 'number' ? helpful : null
+                    });
+                  }
+                }
+                walkArray(item);
+              }
+            }
+          };
+          walkArray(data);
+        }
+      } catch (e) {}
+    }
+  } catch (e) {}
+  return reviews;
+}
+
 app.get('/', (req, res) => {
   res.json({
     message: 'Play Store Scraper API',
@@ -200,84 +258,49 @@ app.get('/apps/details', async (req, res) => {
       await page.waitForSelector('h1, .Fd93Bb, .AfwpI', { timeout: 15000 });
     } catch (e) {}
 
-    // Scroll to load additional info section
     for (let i = 0; i < 4; i++) {
       await page.evaluate(() => window.scrollBy(0, window.innerHeight));
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    // Get raw HTML to parse embedded JavaScript data
     const rawHtml = await page.content();
 
-    // Parse metadata from raw HTML (Google embeds this in script tags)
-    // First, find the data block for this specific app by looking for the app ID or version block
+    const rawMeta = {};
     let appDataBlock = rawHtml;
-
-    // Try to isolate the correct app's data by finding version block context
     const versionIdx = rawHtml.search(/\[\[\["[0-9.]+"\]\],\[\[\[/);
     if (versionIdx > 0) {
-      // IAP and other metadata can be before or after version, so use a wide window
       appDataBlock = rawHtml.substring(Math.max(0, versionIdx - 15000), versionIdx + 15000);
     }
 
-    const rawMeta = {};
-
-    // Version pattern: [[["1.2026.104"]],[[[36]],[[[25,"7.1"]]]]]
     const versionMatch = rawHtml.match(/\[\[\["([0-9.]+)"\]\],\[\[\[/);
     if (versionMatch) rawMeta.version = versionMatch[1];
 
-    // Requires Android pattern: [[[36]],[[[25,"7.1"]]]] -> "7.1"
     const androidMatch = rawHtml.match(/\[\[\[\d+\]\],\[\[\[\d+,\s*"([^"]+)"\]\]\]\]/);
     if (androidMatch) rawMeta.requiresAndroid = androidMatch[1] + ' and up';
 
-    // Updated on: [["Apr 19, 2026",[1776569764,871000000]]]
     const updatedMatch = rawHtml.match(/\[\["([A-Za-z]{3}\s+\d{1,2},\s+\d{4})"\s*,\s*\[\d+,\d+\]\]\]/);
     if (updatedMatch) rawMeta.updatedOn = updatedMatch[1];
 
-    // Released on date: ["Jul 28, 2023",[1690585517,688000000]]
     const releasedMatch = rawHtml.match(/\[\"([A-Za-z]{3}\s+\d{1,2},\s+\d{4})\"\s*,\s*\[(\d+),\d+\]\]/);
     if (releasedMatch && releasedMatch[1] !== rawMeta.updatedOn) {
       rawMeta.releasedOn = releasedMatch[1];
     }
 
-    // In-app purchases price range (handle non-breaking spaces)
     const iapMatch = appDataBlock.match(/\["Rs\s+([\d,\s\u00a0]+-\s+Rs\s+[\d,\s\u00a0]+)\s+per\s+item"/);
     if (iapMatch) rawMeta.inAppPurchases = 'Rs ' + iapMatch[1].replace(/\u00a0/g, ' ').trim() + ' per item';
 
-    // Content rating: "Rated for 12+"
     const contentMatch = rawHtml.match(/"Rated for (\d+\+)"/);
     if (contentMatch) rawMeta.contentRating = 'Rated for ' + contentMatch[1];
 
-    // Downloads count: ["1,000,000,000+",1000000000,1187793083,"1B+"]
     const downloadsMatch = rawHtml.match(/\["([\d,]+\+)",\d+,\d+,\"([^\"]+)\"\]/);
     if (downloadsMatch) rawMeta.downloads = downloadsMatch[1] + ' downloads (' + downloadsMatch[2] + ')';
-
-    // Download size: not always in server HTML, skip
 
     const appDetails = await page.evaluate(() => {
       const getText = (sel) => document.querySelector(sel)?.innerText?.trim() || null;
       const getSrc = (sel) => document.querySelector(sel)?.src || null;
 
-      // Robust label-value extractor
-      const getByLabel = (label) => {
-        const allEls = Array.from(document.querySelectorAll('div, span, dt, dd'));
-        for (const el of allEls) {
-          if (el.innerText?.trim().toLowerCase() === label.toLowerCase()) {
-            const sib = el.nextElementSibling;
-            if (sib && sib.innerText?.trim()) return sib.innerText.trim();
-            const parentSib = el.parentElement?.nextElementSibling;
-            if (parentSib && parentSib.innerText?.trim()) return parentSib.innerText.trim();
-            const siblings = Array.from(el.parentElement?.children || []);
-            for (const s of siblings) {
-              if (s !== el && s.innerText?.trim()) return s.innerText.trim();
-            }
-          }
-        }
-        return null;
-      };
-
       const title = getText('h1 span, .Fd93Bb.Ydn0vb, .AfwpI') || getText('h1');
-      const developer = getText('[itemprop="author"] [itemprop="name"], .Vbfug span, a[href^="/store/apps/dev"]') || getByLabel('Offered by');
+      const developer = getText('[itemprop="author"] [itemprop="name"], .Vbfug span, a[href^="/store/apps/dev"]') || null;
 
       const ratingEl = document.querySelector('.TT9eCd');
       const rating = ratingEl ? (ratingEl.childNodes[0]?.textContent?.trim() || ratingEl.innerText.split('\n')[0].trim()) : null;
@@ -328,18 +351,17 @@ app.get('/apps/details', async (req, res) => {
       };
     });
 
-    // Merge raw HTML metadata with DOM data
     const merged = {
       ...appDetails,
-      version: rawMeta.version || appDetails.version || null,
-      updatedOn: rawMeta.updatedOn || appDetails.updatedOn || null,
-      requiresAndroid: rawMeta.requiresAndroid || appDetails.requiresAndroid || null,
-      inAppPurchases: rawMeta.inAppPurchases || appDetails.inAppPurchases || null,
-      contentRating: rawMeta.contentRating || appDetails.contentRating || null,
-      permissions: appDetails.permissions || null,
-      interactiveElements: appDetails.interactiveElements || null,
-      releasedOn: rawMeta.releasedOn || appDetails.releasedOn || null,
-      downloadSize: rawMeta.downloadSize || appDetails.downloadSize || null,
+      version: rawMeta.version || null,
+      updatedOn: rawMeta.updatedOn || null,
+      requiresAndroid: rawMeta.requiresAndroid || null,
+      inAppPurchases: rawMeta.inAppPurchases || null,
+      contentRating: rawMeta.contentRating || null,
+      permissions: null,
+      interactiveElements: null,
+      releasedOn: rawMeta.releasedOn || null,
+      downloadSize: null,
       downloads: rawMeta.downloads || appDetails.downloads || null
     };
 
@@ -354,118 +376,50 @@ app.get('/apps/details', async (req, res) => {
 
 app.get('/apps/reviews', async (req, res) => {
   const appId = req.query.id;
+  const num = parseInt(req.query.num) || 100;
   if (!appId) {
-    return res.status(400).json({ error: 'Missing app id', usage: '/apps/reviews?id=com.example.app' });
+    return res.status(400).json({ error: 'Missing app id', usage: '/apps/reviews?id=com.example.app&num=100' });
   }
 
-  let browser;
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process'
-      ]
+    // Use google-play-scraper for reliable review fetching
+    const reviewResult = await gplay.reviews({
+      appId: appId,
+      num: Math.min(num, 500), // max 500
+      sort: gplay.sort.NEWEST
     });
 
-    const page = await browser.newPage();
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    );
+    // Also get app details for rating breakdown
+    const appData = await gplay.app({ appId: appId });
 
-    const url = `https://play.google.com/store/apps/details?id=${appId}`;
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    const reviews = reviewResult.data.map(review => ({
+      reviewer: review.userName,
+      avatar: review.userImage,
+      date: review.date,
+      stars: review.score,
+      text: review.text,
+      helpful: review.thumbsUp,
+      reply: review.replyText || null,
+      version: review.version || null
+    }));
 
-    try {
-      await page.waitForSelector('.JzwBgb, .EGFGHd', { timeout: 15000 });
-    } catch (e) {}
-
-    // Click "See all reviews" if present
-    try {
-      const seeAllBtn = await page.$('button span.VfPpkd-vQzf8d');
-      if (seeAllBtn) {
-        const btnText = await seeAllBtn.evaluate(el => el.innerText);
-        if (btnText && btnText.toLowerCase().includes('see all reviews')) {
-          await seeAllBtn.click();
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      }
-    } catch (e) {}
-
-    // Scroll to load more reviews
-    for (let i = 0; i < 3; i++) {
-      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-      await new Promise(r => setTimeout(r, 1500));
-    }
-
-    const reviewsData = await page.evaluate(() => {
-      const result = {
-        overallRating: null,
-        totalReviews: null,
-        ratingBreakdown: {},
-        reviews: []
-      };
-
-      // Overall rating
-      const ratingEl = document.querySelector('.jILTFe, .TT9eCd');
-      if (ratingEl) {
-        result.overallRating = ratingEl.innerText.split('\n')[0].trim();
-      }
-
-      // Total reviews
-      const totalEl = document.querySelector('.EHUI5b, .g1rdde');
-      if (totalEl) {
-        result.totalReviews = totalEl.innerText.trim();
-      }
-
-      // Rating breakdown
-      document.querySelectorAll('.JzwBgb').forEach(row => {
-        const starLabel = row.querySelector('.Qjdn7d');
-        const bar = row.querySelector('.RutFAf.wcB8se');
-        if (starLabel && bar) {
-          const stars = starLabel.innerText.trim();
-          const count = bar.getAttribute('title') || bar.getAttribute('aria-label');
-          const percentage = bar.style.width;
-          result.ratingBreakdown[stars] = { count, percentage };
-        }
-      });
-
-      // Individual reviews
-      document.querySelectorAll('.EGFGHd').forEach(card => {
-        const nameEl = card.querySelector('.X5PpBb');
-        const dateEl = card.querySelector('.bp9Aid');
-        const starsEl = card.querySelector('.iXRFPc');
-        const textEl = card.querySelector('.h3YV2d');
-        const helpfulEl = card.querySelector('.AJTPZc[jsname="J0d7Yd"]');
-        const avatarEl = card.querySelector('.T75of.abYEib');
-
-        const starsAria = starsEl?.getAttribute('aria-label') || '';
-        const starsMatch = starsAria.match(/Rated\s+(\d)/);
-        const starsGiven = starsMatch ? parseInt(starsMatch[1]) : null;
-
-        result.reviews.push({
-          reviewer: nameEl?.innerText?.trim() || null,
-          avatar: avatarEl?.src || null,
-          date: dateEl?.innerText?.trim() || null,
-          stars: starsGiven,
-          text: textEl?.innerText?.trim() || null,
-          helpful: helpfulEl?.innerText?.trim() || null
-        });
-      });
-
-      return result;
+    res.json({
+      appId,
+      overallRating: appData.score,
+      totalReviews: appData.reviews,
+      ratingBreakdown: {
+        5: appData.histogram ? appData.histogram[5] : null,
+        4: appData.histogram ? appData.histogram[4] : null,
+        3: appData.histogram ? appData.histogram[3] : null,
+        2: appData.histogram ? appData.histogram[2] : null,
+        1: appData.histogram ? appData.histogram[1] : null
+      },
+      count: reviews.length,
+      reviews
     });
-
-    res.json({ appId, source: url, ...reviewsData });
   } catch (error) {
     console.error('Reviews scraping error:', error);
     res.status(500).json({ error: error.message });
-  } finally {
-    if (browser) await browser.close();
   }
 });
 
@@ -506,4 +460,5 @@ app.listen(PORT, () => {
   console.log(`Try: http://localhost:${PORT}/apps/SOCIAL`);
   console.log(`Try: http://localhost:${PORT}/search?q=chat`);
   console.log(`Try: http://localhost:${PORT}/apps/details?id=com.openai.chatgpt`);
+  console.log(`Try: http://localhost:${PORT}/apps/reviews?id=com.openai.chatgpt`);
 });
