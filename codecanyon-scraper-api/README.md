@@ -12,28 +12,27 @@ npm start
 
 Server runs on `http://localhost:3001`
 
-## API Endpoints
-
-### Working Endpoints (No Anti-Bot)
+## Working Endpoints (No Cloudflare)
 
 | Endpoint | Description | Status |
 |----------|-------------|--------|
-| `GET /featured` | Featured items | ✅ Works |
-| `GET /categories` | List all categories | ✅ Works |
-| `GET /popular` | Top sellers | ✅ Works |
+| `GET /featured` | Featured items | ✅ 31 items |
+| `GET /categories` | List all categories | ✅ 107 categories |
+| `GET /popular` | Top sellers | ✅ 30 items |
+| `GET /popular/javascript` | Popular by category | ✅ 25 items |
 
-### Limited Endpoints (May be blocked)
+## Limited Endpoints (Cloudflare Protected)
 
 | Endpoint | Description | Status |
 |----------|-------------|--------|
-| `GET /search?term=chat` | Search items | ⚠️ May return 403 |
-| `GET /category/wordpress` | Items by category | ⚠️ May return 403 |
-| `GET /item/61857601` | Item details | ⚠️ May return 403 |
-| `GET /author/TitanSystems` | Author items | ⚠️ May return 403 |
+| `GET /search/ai` | Search items | ❌ 403 |
+| `GET /category/wordpress` | Category items | ❌ 403 |
 
-## Why Some Endpoints Fail
+## What We Discovered from HAR
 
-CodeCanyon uses **Cloudflare anti-bot protection** on search, category, and item detail pages. The `/featured`, `/categories`, and `/popular` pages are not protected and work reliably.
+The HAR file revealed that CodeCanyon uses `/popular_item/by_category?category=xxx` for popular items by category, which **works without Cloudflare**.
+
+However, search (`/search/xxx`) and category (`/category/xxx`) pages are protected by Cloudflare and cannot be scraped with simple HTTP requests.
 
 ## Response Format
 
@@ -60,23 +59,6 @@ CodeCanyon uses **Cloudflare anti-bot protection** on search, category, and item
 }
 ```
 
-## Fields
-
-| Field | Description |
-|-------|-------------|
-| `itemId` | CodeCanyon item ID |
-| `title` | Item name |
-| `url` | Item page URL |
-| `author` | Author name |
-| `authorUrl` | Author profile URL |
-| `category` | Item category |
-| `categoryUrl` | Category URL |
-| `price` | Current price |
-| `rating` | Star rating (1-5) |
-| `reviewCount` | Number of reviews |
-| `sales` | Sales count |
-| `image` | Preview image URL |
-
 ## Tech Stack
 
 - **Express.js** — Web framework
@@ -85,7 +67,7 @@ CodeCanyon uses **Cloudflare anti-bot protection** on search, category, and item
 
 ## Note
 
-There is **no dedicated npm package** for CodeCanyon scraping (unlike `google-play-scraper` for Play Store). This API uses direct HTTP scraping.
+There is **no dedicated npm package** for CodeCanyon scraping. This API uses direct HTTP scraping.
 
 ## Author
 

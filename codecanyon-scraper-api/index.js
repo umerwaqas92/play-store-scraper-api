@@ -62,18 +62,21 @@ async function scrapeItemsFromUrl(url) {
 app.get('/', (req, res) => {
   res.json({
     message: 'CodeCanyon Scraper API',
-    note: 'Some endpoints may return 403 due to CodeCanyon anti-bot protection',
-    endpoints: {
-      '/featured': 'Featured items (works)',
-      '/categories': 'List all categories (works)',
-      '/popular': 'Top sellers (works)',
-      '/search?term=keyword': 'Search items (may be blocked)',
-      '/category/:slug': 'Items by category (may be blocked)',
-      '/item/:id': 'Item details (may be blocked)',
-      '/author/:username': 'Items by author (may be blocked)'
+    note: 'CodeCanyon uses Cloudflare on some pages. Only unprotected pages work.',
+    working_endpoints: {
+      '/featured': 'Featured items',
+      '/categories': 'List all categories',
+      '/popular': 'Top sellers',
+      '/popular/:category': 'Popular by category (e.g., /popular/javascript)'
+    },
+    limited_endpoints: {
+      '/search/:term': 'Search (may be blocked by Cloudflare)',
+      '/category/:slug': 'Category items (may be blocked by Cloudflare)'
     }
   });
 });
+
+// WORKING ENDPOINTS (no Cloudflare)
 
 app.get('/featured', async (req, res) => {
   try {
@@ -113,17 +116,30 @@ app.get('/popular', async (req, res) => {
   }
 });
 
-// These endpoints may return 403 due to Cloudflare protection
-app.get('/search', async (req, res) => {
-  const term = req.query.term || req.query.q;
-  if (!term) return res.status(400).json({ error: 'Missing search term', usage: '/search?term=chat' });
-
+// Popular by category - discovered from HAR file
+app.get('/popular/:category', async (req, res) => {
   try {
-    const url = `https://codecanyon.net/search?term=${encodeURIComponent(term)}`;
+    const url = `https://codecanyon.net/popular_item/by_category?category=${encodeURIComponent(req.params.category)}`;
     const items = await scrapeItemsFromUrl(url);
-    res.json({ query: term, source: url, count: items.length, items });
+    res.json({ category: req.params.category, source: url, count: items.length, items });
   } catch (error) {
-    res.status(403).json({ error: 'CodeCanyon blocked this request (anti-bot protection)', message: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// LIMITED ENDPOINTS (Cloudflare protected)
+
+app.get('/search/:term', async (req, res) => {
+  try {
+    const url = `https://codecanyon.net/search/${encodeURIComponent(req.params.term)}`;
+    const items = await scrapeItemsFromUrl(url);
+    res.json({ query: req.params.term, source: url, count: items.length, items });
+  } catch (error) {
+    res.status(403).json({ 
+      error: 'CodeCanyon blocked this request (Cloudflare anti-bot protection)',
+      message: error.message,
+      note: 'Search pages are protected. Try /featured, /popular, or /popular/:category instead'
+    });
   }
 });
 
@@ -133,32 +149,11 @@ app.get('/category/:slug', async (req, res) => {
     const items = await scrapeItemsFromUrl(url);
     res.json({ category: req.params.slug, source: url, count: items.length, items });
   } catch (error) {
-    res.status(403).json({ error: 'CodeCanyon blocked this request (anti-bot protection)', message: error.message });
-  }
-});
-
-app.get('/item/:id', async (req, res) => {
-  try {
-    const { data } = await client.get(`https://codecanyon.net/item/x/${req.params.id}`, { maxRedirects: 5 });
-    const $ = cheerio.load(data);
-    res.json({
-      itemId: req.params.id,
-      title: $('h1').first().text().trim() || null,
-      author: $('a[href^="/user/"]').first().text().trim() || null,
-      price: $('.shared-item_cards-price_component__root').first().text().trim() || null,
+    res.status(403).json({ 
+      error: 'CodeCanyon blocked this request (Cloudflare anti-bot protection)',
+      message: error.message,
+      note: 'Category pages are protected. Try /popular/:category instead (e.g., /popular/javascript)'
     });
-  } catch (error) {
-    res.status(403).json({ error: 'CodeCanyon blocked this request (anti-bot protection)', message: error.message });
-  }
-});
-
-app.get('/author/:username', async (req, res) => {
-  try {
-    const url = `https://codecanyon.net/user/${req.params.username}`;
-    const items = await scrapeItemsFromUrl(url);
-    res.json({ author: req.params.username, source: url, count: items.length, items });
-  } catch (error) {
-    res.status(403).json({ error: 'CodeCanyon blocked this request (anti-bot protection)', message: error.message });
   }
 });
 
