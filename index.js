@@ -142,7 +142,8 @@ app.get('/', (req, res) => {
       '/categories': 'List all available app categories',
       '/apps/:category': 'Get apps from a specific category (e.g., /apps/SOCIAL)',
       '/search': 'Search apps by query parameter (e.g., /search?q=chat)',
-      '/apps/details?id=PACKAGE_NAME': 'Get details for a specific app (e.g., /apps/details?id=com.openai.chatgpt)'
+      '/apps/details?id=PACKAGE_NAME': 'Get details for a specific app (e.g., /apps/details?id=com.openai.chatgpt)',
+      '/apps/reviews?id=PACKAGE_NAME': 'Get ratings breakdown and reviews (e.g., /apps/reviews?id=com.openai.chatgpt)'
     }
   });
 });
@@ -345,6 +346,123 @@ app.get('/apps/details', async (req, res) => {
     res.json({ appId, source: url, details: merged });
   } catch (error) {
     console.error('Details scraping error:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    if (browser) await browser.close();
+  }
+});
+
+app.get('/apps/reviews', async (req, res) => {
+  const appId = req.query.id;
+  if (!appId) {
+    return res.status(400).json({ error: 'Missing app id', usage: '/apps/reviews?id=com.example.app' });
+  }
+
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process'
+      ]
+    });
+
+    const page = await browser.newPage();
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    );
+
+    const url = `https://play.google.com/store/apps/details?id=${appId}`;
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+
+    try {
+      await page.waitForSelector('.JzwBgb, .EGFGHd', { timeout: 15000 });
+    } catch (e) {}
+
+    // Click "See all reviews" if present
+    try {
+      const seeAllBtn = await page.$('button span.VfPpkd-vQzf8d');
+      if (seeAllBtn) {
+        const btnText = await seeAllBtn.evaluate(el => el.innerText);
+        if (btnText && btnText.toLowerCase().includes('see all reviews')) {
+          await seeAllBtn.click();
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+    } catch (e) {}
+
+    // Scroll to load more reviews
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+      await new Promise(r => setTimeout(r, 1500));
+    }
+
+    const reviewsData = await page.evaluate(() => {
+      const result = {
+        overallRating: null,
+        totalReviews: null,
+        ratingBreakdown: {},
+        reviews: []
+      };
+
+      // Overall rating
+      const ratingEl = document.querySelector('.jILTFe, .TT9eCd');
+      if (ratingEl) {
+        result.overallRating = ratingEl.innerText.split('\n')[0].trim();
+      }
+
+      // Total reviews
+      const totalEl = document.querySelector('.EHUI5b, .g1rdde');
+      if (totalEl) {
+        result.totalReviews = totalEl.innerText.trim();
+      }
+
+      // Rating breakdown
+      document.querySelectorAll('.JzwBgb').forEach(row => {
+        const starLabel = row.querySelector('.Qjdn7d');
+        const bar = row.querySelector('.RutFAf.wcB8se');
+        if (starLabel && bar) {
+          const stars = starLabel.innerText.trim();
+          const count = bar.getAttribute('title') || bar.getAttribute('aria-label');
+          const percentage = bar.style.width;
+          result.ratingBreakdown[stars] = { count, percentage };
+        }
+      });
+
+      // Individual reviews
+      document.querySelectorAll('.EGFGHd').forEach(card => {
+        const nameEl = card.querySelector('.X5PpBb');
+        const dateEl = card.querySelector('.bp9Aid');
+        const starsEl = card.querySelector('.iXRFPc');
+        const textEl = card.querySelector('.h3YV2d');
+        const helpfulEl = card.querySelector('.AJTPZc[jsname="J0d7Yd"]');
+        const avatarEl = card.querySelector('.T75of.abYEib');
+
+        const starsAria = starsEl?.getAttribute('aria-label') || '';
+        const starsMatch = starsAria.match(/Rated\s+(\d)/);
+        const starsGiven = starsMatch ? parseInt(starsMatch[1]) : null;
+
+        result.reviews.push({
+          reviewer: nameEl?.innerText?.trim() || null,
+          avatar: avatarEl?.src || null,
+          date: dateEl?.innerText?.trim() || null,
+          stars: starsGiven,
+          text: textEl?.innerText?.trim() || null,
+          helpful: helpfulEl?.innerText?.trim() || null
+        });
+      });
+
+      return result;
+    });
+
+    res.json({ appId, source: url, ...reviewsData });
+  } catch (error) {
+    console.error('Reviews scraping error:', error);
     res.status(500).json({ error: error.message });
   } finally {
     if (browser) await browser.close();
