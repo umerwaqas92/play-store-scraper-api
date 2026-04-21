@@ -1,0 +1,50 @@
+{
+    "category": "Social",
+    "categoryId": "SOCIAL",
+    "source": "https://play.google.com/store/apps/category/SOCIAL",
+    "count": 92,
+    "apps": [
+        {
+            "title": "TikTok Lite - Save Data & Fast",
+            "developer": null,
+            "url": "https://play.google.com/store/apps/details?id=com.zhiliaoapp.musically.go",
+            "icon": "https://play-lh.googleusercontent.com/9jcxRm8DMqox-b1VwJclSwgZrDBiqSKiy_POHGmx6xSkiwvxrljh0U_2ZRtrUDOZaHo=s256-rw",
+            "rating": "4.2\nstar",
+            "type": "grid"
+        },
+        {
+            "title": "Facebook",
+            "developer": null,
+            "url": "https://play.google.com/store/apps/details?id=com.facebook.katana",
+            "icon": "https://play-lh.googleusercontent.com/KCMTYuiTrKom4Vyf0G4foetVOwhKWzNbHWumV73IXexAIy5TTgZipL52WTt8ICL-oIo=s256-rw",
+            "rating": "4.4\nstar",
+            "type": "grid"
+        },
+        {
+            "title": "Instagram Lite",
+            "developer": null,
+            "url": "https://play.google.com/store/apps/details?id=com.instagram.lite",
+            "icon": "https://play-lh.googleusercontent.com/ZIrCcsga5EiJpCqQtOzuVFSHY4yOiESvZrLFy-gC0OGHZ9fKM018odPj2Q0TPmrOpRvD=s256-rw",
+            "rating": "4.2\nstar",
+            "type": "grid"
+        },
+        {
+            "title": "Facebook Lite",
+            "developer": null,
+            "url": "https://play.google.com/store/apps/details?id=com.facebook.lite",
+            "icon": "https://play-lh.googleusercontent.com/Tll2LETWf7s67vK-OXqI3CbpwraoUK6tJH73z034zumyJa6CrWx1OTaYNQWj9jMKQUMU=s256-rw",
+            "rating": "4.3\nstar",
+            "type": "grid"
+        },
+        {
+            "title": "Threads",
+            "developer": null,
+            "url": "https://play.google.com/store/apps/details?id=com.instagram.barcelona",
+            "icon": "https://play-lh.googleusercontent.com/G6jK9S77RN0laf9_6nhDo3AVxbRP9SgMmt8ZmQjKQ2hibn9xhOY-W5YFn_7stJD1CA=s256-rw",
+            "rating": "4.3\nstar",
+            "type": "grid"
+        },
+        {
+            "title": "Gemgala - Party & Chat & Games",
+            "developer": null,
+            "url": "https://play.google.com/store/apps/details?id=com.hkjustar.gemgala",
