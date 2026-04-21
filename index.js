@@ -205,6 +205,54 @@ app.get('/apps/details', async (req, res) => {
       await new Promise(r => setTimeout(r, 1000));
     }
 
+    // Get raw HTML to parse embedded JavaScript data
+    const rawHtml = await page.content();
+
+    // Parse metadata from raw HTML (Google embeds this in script tags)
+    // First, find the data block for this specific app by looking for the app ID or version block
+    let appDataBlock = rawHtml;
+
+    // Try to isolate the correct app's data by finding version block context
+    const versionIdx = rawHtml.search(/\[\[\["[0-9.]+"\]\],\[\[\[/);
+    if (versionIdx > 0) {
+      // IAP and other metadata can be before or after version, so use a wide window
+      appDataBlock = rawHtml.substring(Math.max(0, versionIdx - 15000), versionIdx + 15000);
+    }
+
+    const rawMeta = {};
+
+    // Version pattern: [[["1.2026.104"]],[[[36]],[[[25,"7.1"]]]]]
+    const versionMatch = rawHtml.match(/\[\[\["([0-9.]+)"\]\],\[\[\[/);
+    if (versionMatch) rawMeta.version = versionMatch[1];
+
+    // Requires Android pattern: [[[36]],[[[25,"7.1"]]]] -> "7.1"
+    const androidMatch = rawHtml.match(/\[\[\[\d+\]\],\[\[\[\d+,\s*"([^"]+)"\]\]\]\]/);
+    if (androidMatch) rawMeta.requiresAndroid = androidMatch[1] + ' and up';
+
+    // Updated on: [["Apr 19, 2026",[1776569764,871000000]]]
+    const updatedMatch = rawHtml.match(/\[\["([A-Za-z]{3}\s+\d{1,2},\s+\d{4})"\s*,\s*\[\d+,\d+\]\]\]/);
+    if (updatedMatch) rawMeta.updatedOn = updatedMatch[1];
+
+    // Released on date: ["Jul 28, 2023",[1690585517,688000000]]
+    const releasedMatch = rawHtml.match(/\[\"([A-Za-z]{3}\s+\d{1,2},\s+\d{4})\"\s*,\s*\[(\d+),\d+\]\]/);
+    if (releasedMatch && releasedMatch[1] !== rawMeta.updatedOn) {
+      rawMeta.releasedOn = releasedMatch[1];
+    }
+
+    // In-app purchases price range (handle non-breaking spaces)
+    const iapMatch = appDataBlock.match(/\["Rs\s+([\d,\s\u00a0]+-\s+Rs\s+[\d,\s\u00a0]+)\s+per\s+item"/);
+    if (iapMatch) rawMeta.inAppPurchases = 'Rs ' + iapMatch[1].replace(/\u00a0/g, ' ').trim() + ' per item';
+
+    // Content rating: "Rated for 12+"
+    const contentMatch = rawHtml.match(/"Rated for (\d+\+)"/);
+    if (contentMatch) rawMeta.contentRating = 'Rated for ' + contentMatch[1];
+
+    // Downloads count: ["1,000,000,000+",1000000000,1187793083,"1B+"]
+    const downloadsMatch = rawHtml.match(/\["([\d,]+\+)",\d+,\d+,\"([^\"]+)\"\]/);
+    if (downloadsMatch) rawMeta.downloads = downloadsMatch[1] + ' downloads (' + downloadsMatch[2] + ')';
+
+    // Download size: not always in server HTML, skip
+
     const appDetails = await page.evaluate(() => {
       const getText = (sel) => document.querySelector(sel)?.innerText?.trim() || null;
       const getSrc = (sel) => document.querySelector(sel)?.src || null;
@@ -214,13 +262,10 @@ app.get('/apps/details', async (req, res) => {
         const allEls = Array.from(document.querySelectorAll('div, span, dt, dd'));
         for (const el of allEls) {
           if (el.innerText?.trim().toLowerCase() === label.toLowerCase()) {
-            // sibling
             const sib = el.nextElementSibling;
             if (sib && sib.innerText?.trim()) return sib.innerText.trim();
-            // parent's sibling
             const parentSib = el.parentElement?.nextElementSibling;
             if (parentSib && parentSib.innerText?.trim()) return parentSib.innerText.trim();
-            // children of same container
             const siblings = Array.from(el.parentElement?.children || []);
             for (const s of siblings) {
               if (s !== el && s.innerText?.trim()) return s.innerText.trim();
@@ -230,32 +275,18 @@ app.get('/apps/details', async (req, res) => {
         return null;
       };
 
-      // Title
       const title = getText('h1 span, .Fd93Bb.Ydn0vb, .AfwpI') || getText('h1');
-
-      // Developer
       const developer = getText('[itemprop="author"] [itemprop="name"], .Vbfug span, a[href^="/store/apps/dev"]') || getByLabel('Offered by');
 
-      // Rating number only
       const ratingEl = document.querySelector('.TT9eCd');
       const rating = ratingEl ? (ratingEl.childNodes[0]?.textContent?.trim() || ratingEl.innerText.split('\n')[0].trim()) : null;
 
-      // Reviews
       const reviews = getText('.wVqUob .g1rdde') || getText('[itemprop="ratingCount"]');
-
-      // Description
       const description = getText('[itemprop="description"]') || getText('[data-g-id="description"]') || getText('.bARER');
-
-      // Icon
       const icon = getSrc('img[itemprop="image"], img.T75of.sHb2Xb, img.T75of.AG5UC');
-
-      // Genre
       const genre = getText('[itemprop="genre"]') || getText('a[href*="/store/apps/category/"]');
-
-      // Price
       const price = getText('[itemprop="price"]') || getText('.VfPpfd.VixbEe span');
 
-      // Downloads
       let downloads = null;
       const downloadLabel = document.evaluate(
         "//div[contains(text(), 'Downloads') or contains(text(), 'downloads')]",
@@ -266,38 +297,21 @@ app.get('/apps/details', async (req, res) => {
         downloads = prev?.innerText?.trim() || downloadLabel.parentElement?.firstElementChild?.innerText?.trim() || null;
       }
 
-      // Screenshots (replace size param for larger images)
       const screenshots = Array.from(
         document.querySelectorAll('img.T75of.B5GQxf[alt="Screenshot image"], img[data-screenshot-index]')
       )
         .map(img => {
           let url = null;
-          // Use srcset highest resolution if available
           if (img.srcset) {
             const sources = img.srcset.split(',').map(s => s.trim());
-            const last = sources[sources.length - 1];
-            url = last.split(' ')[0];
+            url = sources[sources.length - 1].split(' ')[0];
           } else if (img.src) {
             url = img.src;
           }
-          // Force largest possible size
-          if (url) {
-            return url.replace(/=w\d+-h\d+-rw$/, '=w5120-h2880-rw');
-          }
+          if (url) return url.replace(/=w\d+-h\d+-rw$/, '=w5120-h2880-rw');
           return null;
         })
         .filter(Boolean);
-
-      // Metadata fields
-      const version = getByLabel('Version');
-      const updatedOn = getByLabel('Updated on');
-      const requiresAndroid = getByLabel('Requires Android');
-      const inAppPurchases = getByLabel('In-app purchases');
-      const contentRating = getByLabel('Content rating');
-      const permissions = getByLabel('Permissions');
-      const interactiveElements = getByLabel('Interactive elements');
-      const releasedOn = getByLabel('Released on');
-      const downloadSize = getByLabel('Download size') || getByLabel('Size');
 
       return {
         title,
@@ -309,20 +323,26 @@ app.get('/apps/details', async (req, res) => {
         genre,
         price,
         downloads,
-        version,
-        updatedOn,
-        requiresAndroid,
-        inAppPurchases,
-        contentRating,
-        permissions,
-        interactiveElements,
-        releasedOn,
-        downloadSize,
         screenshots
       };
     });
 
-    res.json({ appId, source: url, details: appDetails });
+    // Merge raw HTML metadata with DOM data
+    const merged = {
+      ...appDetails,
+      version: rawMeta.version || appDetails.version || null,
+      updatedOn: rawMeta.updatedOn || appDetails.updatedOn || null,
+      requiresAndroid: rawMeta.requiresAndroid || appDetails.requiresAndroid || null,
+      inAppPurchases: rawMeta.inAppPurchases || appDetails.inAppPurchases || null,
+      contentRating: rawMeta.contentRating || appDetails.contentRating || null,
+      permissions: appDetails.permissions || null,
+      interactiveElements: appDetails.interactiveElements || null,
+      releasedOn: rawMeta.releasedOn || appDetails.releasedOn || null,
+      downloadSize: rawMeta.downloadSize || appDetails.downloadSize || null,
+      downloads: rawMeta.downloads || appDetails.downloads || null
+    };
+
+    res.json({ appId, source: url, details: merged });
   } catch (error) {
     console.error('Details scraping error:', error);
     res.status(500).json({ error: error.message });
