@@ -155,7 +155,8 @@ app.get('/', (req, res) => {
       '/apps': 'Get all apps from main Google Play Store page',
       '/categories': 'List all available app categories',
       '/apps/:category': 'Get apps from a specific category (e.g., /apps/SOCIAL)',
-      '/search': 'Search apps by query parameter (e.g., /search?q=chat)'
+      '/search': 'Search apps by query parameter (e.g., /search?q=chat)',
+      '/apps/details?id=PACKAGE_NAME': 'Get details for a specific app (e.g., /apps/details?id=com.openai.chatgpt)'
     }
   });
 });
@@ -178,57 +179,6 @@ app.get('/apps', async (req, res) => {
   try {
     const apps = await scrapePage('https://play.google.com/store/apps');
     res.json({ count: apps.length, apps });
-  } catch (error) {
-    console.error('Scraping error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/apps/:category', async (req, res) => {
-  const category = req.params.category.toUpperCase();
-
-  if (!CATEGORIES[category]) {
-    return res.status(400).json({
-      error: 'Invalid category',
-      validCategories: Object.keys(CATEGORIES)
-    });
-  }
-
-  try {
-    const url = `https://play.google.com/store/apps/category/${category}`;
-    const apps = await scrapePage(url);
-    res.json({
-      category: CATEGORIES[category],
-      categoryId: category,
-      source: url,
-      count: apps.length,
-      apps
-    });
-  } catch (error) {
-    console.error('Scraping error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/search', async (req, res) => {
-  const query = req.query.q;
-
-  if (!query) {
-    return res.status(400).json({
-      error: 'Missing search query',
-      usage: '/search?q=your+search+term'
-    });
-  }
-
-  try {
-    const url = `https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps`;
-    const apps = await scrapePage(url);
-    res.json({
-      query: query,
-      source: url,
-      count: apps.length,
-      apps
-    });
   } catch (error) {
     console.error('Scraping error:', error);
     res.status(500).json({ error: error.message });
@@ -282,6 +232,18 @@ app.get('/apps/details', async (req, res) => {
       const getAttr = (sel, attr) => document.querySelector(sel)?.getAttribute(attr) || null;
       const getSrc = (sel) => document.querySelector(sel)?.src || null;
 
+      // Helper to find element by partial text content
+      const findByText = (text) => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while (node = walker.nextNode()) {
+          if (node.textContent.toLowerCase().includes(text.toLowerCase())) {
+            return node.parentElement;
+          }
+        }
+        return null;
+      };
+
       // Try multiple selectors for each field
       const title = getText('h1 span, .Fd93Bb.Ydn0vb, .AfwpI') || getText('h1');
       const developer = getText('[itemprop="author"] [itemprop="name"], .Vbfug span, a[href^="/store/apps/dev"], .gppmL');
@@ -291,7 +253,14 @@ app.get('/apps/details', async (req, res) => {
       const icon = getSrc('img[itemprop="image"], img.T75of.sHb2Xb, img.T75of.AG5UC');
       const genre = getText('[itemprop="genre"], a[href*="/store/apps/category/"]') || getText('a[href*="/store/apps/category/"]');
       const price = getText('[itemprop="price"], .VfPpfd.VixbEe span');
-      const installs = getText('div:contains("Downloads") + div, div:contains("Installs") + div');
+
+      // Find installs/downloads by walking DOM for text
+      let installs = null;
+      const installsLabel = findByText('Downloads') || findByText('Installs');
+      if (installsLabel) {
+        const sibling = installsLabel.nextElementSibling;
+        installs = sibling?.innerText?.trim() || installsLabel.parentElement?.nextElementSibling?.innerText?.trim() || null;
+      }
 
       // Screenshots
       const screenshots = Array.from(document.querySelectorAll('img[itemprop="screenshot"], img.T75of.K9W4j, img.T75of.lxGQyd')).map(img => img.src);
@@ -320,6 +289,57 @@ app.get('/apps/details', async (req, res) => {
     res.status(500).json({ error: error.message });
   } finally {
     if (browser) await browser.close();
+  }
+});
+
+app.get('/apps/:category', async (req, res) => {
+  const category = req.params.category.toUpperCase();
+
+  if (!CATEGORIES[category]) {
+    return res.status(400).json({
+      error: 'Invalid category',
+      validCategories: Object.keys(CATEGORIES)
+    });
+  }
+
+  try {
+    const url = `https://play.google.com/store/apps/category/${category}`;
+    const apps = await scrapePage(url);
+    res.json({
+      category: CATEGORIES[category],
+      categoryId: category,
+      source: url,
+      count: apps.length,
+      apps
+    });
+  } catch (error) {
+    console.error('Scraping error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/search', async (req, res) => {
+  const query = req.query.q;
+
+  if (!query) {
+    return res.status(400).json({
+      error: 'Missing search query',
+      usage: '/search?q=your+search+term'
+    });
+  }
+
+  try {
+    const url = `https://play.google.com/store/search?q=${encodeURIComponent(query)}&c=apps`;
+    const apps = await scrapePage(url);
+    res.json({
+      query: query,
+      source: url,
+      count: apps.length,
+      apps
+    });
+  } catch (error) {
+    console.error('Scraping error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
